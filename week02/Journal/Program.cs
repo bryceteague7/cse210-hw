@@ -1,135 +1,249 @@
 using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Text.Json;
+using System.Globalization;
 
-public class Journal
+public class Program
 {
-    public List<Entry> Entries { get; set; } = new List<Entry>();
-
-    public void AddEntry(Entry entry) => Entries.Add(entry);
-
-    public void DisplayAll()
+    // EXCEEDING REQUIREMENTS:
+    // - Saves and loads as JSON (safe for special characters).
+    // - Stores mood rating (1-10) with each entry and includes stats (count, average mood).
+    // - Supports search by keyword or by date (yyyy-MM-dd).
+    // - Exports CSV suitable for Excel (simple quoting).
+    // - PromptGenerator can load prompts from file and accept added prompts at runtime.
+    // - Uses solid OO design: Entry, Journal, PromptGenerator, Program.
+    public static void Main(string[] args)
     {
-        if (Entries.Count == 0)
-        {
-            Console.WriteLine("No entries yet.");
-            return;
-        }
+        var journal = new Journal();
+        var prompts = new PromptGenerator();
 
-        foreach (var e in Entries)
+        bool running = true;
+        while (running)
         {
-            Console.WriteLine(e);
-            Console.WriteLine(new string('-', 40));
+            PrintMenu();
+            Console.Write("Choose an option: ");
+            var choice = Console.ReadLine()?.Trim();
+
+            switch (choice)
+            {
+                case "1":
+                    WriteNewEntry(journal, prompts);
+                    break;
+                case "2":
+                    journal.DisplayAll();
+                    break;
+                case "3":
+                    SaveJson(journal);
+                    break;
+                case "4":
+                    LoadJson(journal);
+                    break;
+                case "5":
+                    SearchEntries(journal);
+                    break;
+                case "6":
+                    ShowStats(journal);
+                    break;
+                case "7":
+                    ExportCsv(journal);
+                    break;
+                case "8":
+                    ManagePrompts(prompts);
+                    break;
+                case "9":
+                    SaveTextLegacy(journal);
+                    break;
+                case "0":
+                    Console.WriteLine("Goodbye!");
+                    running = false;
+                    break;
+                default:
+                    Console.WriteLine("Invalid choice. Enter a number shown in the menu.");
+                    break;
+             }
+
+            if (running)
+            {
+                Console.WriteLine("\nPress Enter to continue...");
+                Console.ReadLine();
+            }
         }
     }
 
-    // JSON storage (recommended)
-    public void SaveToJson(string filename)
+    static void PrintMenu()
     {
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        string json = JsonSerializer.Serialize(Entries, options);
-        File.WriteAllText(filename, json, Encoding.UTF8);
-        Console.WriteLine($"Journal saved as JSON to '{filename}'.");
+        Console.Clear();
+        Console.WriteLine("=== Journal Menu ===");
+        Console.WriteLine("1. Write a new entry (random prompt + mood)");
+        Console.WriteLine("2. Display the journal");
+        Console.WriteLine("3. Save the journal to a JSON file");
+        Console.WriteLine("4. Load the journal from a JSON file (replaces current entries)");
+        Console.WriteLine("5. Search entries (keyword or date yyyy-MM-dd)");
+        Console.WriteLine("6. Show statistics (count, avg mood, most recent)");
+        Console.WriteLine("7. Export to CSV (Excel-friendly)");
+        Console.WriteLine("8. Manage prompts (view/add/load-from-file)");
+        Console.WriteLine("9. (Legacy) Save/Load as pipe-separated text");
+        Console.WriteLine("0. Quit");
+        Console.WriteLine("====================");
     }
 
-    public void LoadFromJson(string filename)
+    static void WriteNewEntry(Journal journal, PromptGenerator prompts)
     {
-        if (!File.Exists(filename))
-        {
-            Console.WriteLine($"File '{filename}' not found.");
-            return;
-        }
+        string prompt = prompts.GetRandomPrompt();
+        Console.WriteLine($"\nPrompt: {prompt}");
+        Console.Write("Your response: ");
+        string response = Console.ReadLine() ?? "";
 
-        string json = File.ReadAllText(filename, Encoding.UTF8);
+        int mood = ReadIntInRange("Rate your mood 1-10 (or 0 to skip): ", 0, 10);
+
+        string date = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        string time = DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+
+        var entry = new Entry(date, time, prompt, response, mood);
+        journal.AddEntry(entry);
+        Console.WriteLine("Entry added.");
+    }
+
+    static int ReadIntInRange(string prompt, int min, int max)
+    {
+        while (true)
+        {
+            Console.Write(prompt);
+            string? s = Console.ReadLine();
+            if (int.TryParse(s, out int val) && val >= min && val <= max) return val;
+            Console.WriteLine($"Please enter a number between {min} and {max}.");
+        }
+    }
+
+    static void SaveJson(Journal journal)
+    {
+        Console.Write("Enter filename to save JSON (e.g., journal.json): ");
+        string file = Console.ReadLine()?.Trim() ?? "journal.json";
         try
         {
-            var loaded = JsonSerializer.Deserialize<List<Entry>>(json) ?? new List<Entry>();
-            Entries = loaded;
-            Console.WriteLine($"Loaded {Entries.Count} entries from '{filename}'.");
+            journal.SaveToJson(file);
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Error reading JSON: " + ex.Message);
+            Console.WriteLine("Error saving JSON: " + ex.Message);
         }
     }
 
-    // Simple pipe-separated text save/load (legacy / safe)
-    public void SaveToTextFile(string filename)
+    static void LoadJson(Journal journal)
     {
-        using var writer = new StreamWriter(filename, false, Encoding.UTF8);
-        foreach (var e in Entries)
-            writer.WriteLine(e.ToFileString());
-        Console.WriteLine($"Journal saved to text file '{filename}'.");
-    }
-
-    public void LoadFromTextFile(string filename)
-    {
-        if (!File.Exists(filename))
+        Console.Write("Enter filename to load JSON (e.g., journal.json): ");
+        string file = Console.ReadLine()?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(file)) { Console.WriteLine("No filename entered."); return; }
+        try
         {
-            Console.WriteLine($"File '{filename}' not found.");
-            return;
+            journal.LoadFromJson(file);
         }
-        var lines = File.ReadAllLines(filename, Encoding.UTF8);
-        var list = new List<Entry>();
-        foreach (var line in lines)
-            list.Add(Entry.FromFileString(line));
-        Entries = list;
-        Console.WriteLine($"Loaded {Entries.Count} entries from '{filename}'.");
-    }
-
-    // CSV export for Excel (wrap fields in quotes, double internal quotes)
-    public void ExportToCsv(string filename)
-    {
-        using var writer = new StreamWriter(filename, false, Encoding.UTF8);
-        writer.WriteLine("Date,Time,Mood,Prompt,Response");
-        foreach (var e in Entries)
+        catch (Exception ex)
         {
-            string q(string field) => $"\"{field?.Replace("\"", "\"\"")}\"";
-            writer.WriteLine($"{q(e.Date)},{q(e.Time)},{e.Mood},{q(e.Prompt)},{q(e.Response)}");
+            Console.WriteLine("Error loading JSON: " + ex.Message);
         }
-        Console.WriteLine($"Exported {Entries.Count} entries to CSV '{filename}'.");
     }
 
-    // Search by keyword (in prompt or response) or exact date (yyyy-MM-dd)
-    public List<Entry> Search(string query)
+    static void SearchEntries(Journal journal)
     {
-        if (string.IsNullOrWhiteSpace(query)) return new List<Entry>();
-        query = query.Trim();
-        bool isDate = DateTime.TryParse(query, out var date);
-        if (isDate)
+        Console.Write("Enter search keyword or date (yyyy-MM-dd): ");
+        string q = Console.ReadLine() ?? "";
+        var results = journal.Search(q);
+        Console.WriteLine($"\nFound {results.Count} results for '{q}':\n");
+        foreach (var r in results) Console.WriteLine(r + new string('-', 30));
+    }
+
+    static void ShowStats(Journal journal)
+    {
+        int count = journal.EntryCount();
+        double avg = journal.AverageMood();
+        var recent = journal.MostRecent();
+        Console.WriteLine($"Total entries: {count}");
+        Console.WriteLine($"Average mood (entries with mood): {(avg > 0 ? avg.ToString("0.00") : "N/A")}");
+        if (recent != null)
         {
-            string dateStr = date.ToString("yyyy-MM-dd");
-            return Entries.Where(e => e.Date == dateStr).ToList();
+            Console.WriteLine("\nMost recent entry:");
+            Console.WriteLine(recent);
         }
-        string qLower = query.ToLowerInvariant();
-        return Entries.Where(e => (e.Prompt ?? "").ToLowerInvariant().Contains(qLower)
-                                || (e.Response ?? "").ToLowerInvariant().Contains(qLower)).ToList();
-    }
-
-    // Simple stats
-    public int EntryCount() => Entries.Count;
-
-    public double AverageMood()
-    {
-        var moods = Entries.Where(e => e.Mood > 0).Select(e => e.Mood).ToList();
-        if (!moods.Any()) return 0.0;
-        return moods.Average();
-    }
-
-    public Entry MostRecent()
-    {
-        // try to parse Time fields for ordering, fall back to list order
-        var parsed = Entries.Select(e =>
+        else
         {
-            if (DateTime.TryParse($"{e.Date}T{e.Time}", out var dt)) return (entry: e, when: dt);
-            if (DateTime.TryParse(e.Time, out var t)) return (entry: e, when: t);
-            return (entry: e, when: DateTime.MinValue);
-        });
+            Console.WriteLine("No entries yet.");
+        }
+    }
 
-        var most = parsed.OrderByDescending(p => p.when).FirstOrDefault();
-        return most.entry;
+    static void ExportCsv(Journal journal)
+    {
+        Console.Write("Enter CSV filename (e.g., journal.csv): ");
+        string file = Console.ReadLine()?.Trim() ?? "journal.csv";
+        try
+        {
+            journal.ExportToCsv(file);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error exporting CSV: " + ex.Message);
+        }
+    }
+
+    static void ManagePrompts(PromptGenerator prompts)
+    {
+        Console.WriteLine("\nPrompt Manager:");
+        Console.WriteLine("1. View all prompts");
+        Console.WriteLine("2. Add a prompt");
+        Console.WriteLine("3. Load prompts from file");
+        Console.Write("Choose an option: ");
+        var c = Console.ReadLine();
+        switch (c)
+        {
+            case "1":
+                Console.WriteLine("\nPrompts:");
+                int i = 1;
+                foreach (var p in prompts.GetAllPrompts()) Console.WriteLine($"{i++}. {p}");
+                break;
+            case "2":
+                Console.Write("Enter new prompt text: ");
+                string np = Console.ReadLine() ?? "";
+                prompts.AddPrompt(np);
+                Console.WriteLine("Prompt added.");
+                break;
+            case "3":
+                Console.Write("Enter prompt filename (one prompt per line): ");
+                string f = Console.ReadLine() ?? "";
+                try
+                {
+                    prompts.LoadPromptsFromFile(f);
+                    Console.WriteLine("Prompts loaded from file.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Error loading prompts: " + ex.Message);
+                }
+                break;
+            default:
+                Console.WriteLine("Invalid choice.");
+                break;
+        }
+    }
+
+    static void SaveTextLegacy(Journal journal)
+    {
+        Console.WriteLine("1. Save to text file (pipe-separated)");
+        Console.WriteLine("2. Load from text file (pipe-separated)");
+        Console.Write("Choose: ");
+        string c = Console.ReadLine() ?? "";
+        switch (c)
+        {
+            case "1":
+                Console.Write("Enter filename (e.g., journal.txt): ");
+                var s = Console.ReadLine() ?? "journal.txt";
+                journal.SaveToTextFile(s);
+                break;
+            case "2":
+                Console.Write("Enter filename to load (e.g., journal.txt): ");
+                var l = Console.ReadLine() ?? "";
+                if (!string.IsNullOrWhiteSpace(l)) journal.LoadFromTextFile(l);
+                break;
+            default:
+                Console.WriteLine("Invalid choice.");
+                break;
+        }
     }
 }
